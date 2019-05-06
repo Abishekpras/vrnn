@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, BatchSampler, RandomSampler
 from torchvision import datasets, transforms
 
 from model import VRNN
@@ -23,8 +23,9 @@ n_epochs = 100
 clip = 10
 learning_rate = 1e-3
 batch_size = 128
+seq_len = 8
 seed = 128
-print_every = 100
+print_every = 60000 // (4 * batch_size * seq_len)
 save_every = 10
 
 
@@ -57,11 +58,22 @@ def min_max_norm(x, min, max):
     return (x - min) / (max - min)
 
 
+def mini_batchify(mini_batch_size, data):
+
+    num_m_batch = len(data) // mini_batch_size
+    mini_batched_data = [] * num_m_batch
+    for i in range(num_m_batch):
+        mini_batched_data.append(data[i * mini_batch_size:(i + 1) * mini_batch_size])
+
+    return torch.stack(mini_batched_data)
+
+
 def train(epoch):
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
 
-        data = data.view(batch_size, -1)
+        data = mini_batchify(seq_len, data)
+        data = data.view(batch_size, seq_len, x_dim)
         data = min_max_norm(data, data.min().item(), data.max().item())
 
         optimizer.zero_grad()
@@ -88,7 +100,8 @@ def test(epoch):
     mean_kld_loss, mean_nll_loss = 0, 0
     for i, (data, _) in enumerate(test_loader):
 
-        data = data.squeeze().view(-1, x_dim)
+        data = mini_batchify(seq_len, data)
+        data = data.squeeze().view(batch_size, seq_len, x_dim)
         data = min_max_norm(data, data.min().item(), data.max().item())
 
         kld_loss, nll_loss = model(data)
@@ -107,18 +120,20 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     plt.ion()
 
-    train_loader = DataLoader(datasets.MNIST('data', train=True, download=True,
-                                             transform=transforms.ToTensor()),
-                              batch_size=batch_size, shuffle=True,
-                              drop_last=True)
+    train_dataset = datasets.MNIST('data', train=True, download=True,
+                                   transform=transforms.ToTensor())
+    test_dataset = datasets.MNIST('data', train=False, download=True,
+                                  transform=transforms.ToTensor())
 
-    test_loader = DataLoader(datasets.MNIST('data', train=False,
-                                            transform=transforms.ToTensor()),
-                             batch_size=batch_size, shuffle=True,
+    train_loader = DataLoader(train_dataset,
+                              batch_size=batch_size * seq_len, shuffle=True,
+                              drop_last=True)
+    test_loader = DataLoader(test_dataset,
+                             batch_size=batch_size * seq_len, shuffle=True,
                              drop_last=True)
 
-    model = VRNN(x_dim, h_dim, z_dim)
-    model.load_state_dict(torch.load('saves/vrnn_state_dict_21.pth'))
+    model = VRNN(seq_len, x_dim, h_dim, z_dim)
+    # model.load_state_dict(torch.load('saves/vrnn_state_dict_21.pth'))
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     total_time = 0
