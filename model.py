@@ -49,11 +49,11 @@ class VRNN(nn.Module):
 
     kld_loss = 0
     nll_loss = 0
-    h = torch.zeros(x.size(0), self.h_dim)
+    h = torch.zeros(x.size(1), self.h_dim)
 
     for t in range(self.seq_len):
 
-      phi_x_t = self.phi_x(x[:, t:t + 1].squeeze())
+      phi_x_t = self.phi_x(x[t:t + 1].squeeze())
 
       prior_t = self.prior(h)
       prior_mean_t = self.prior_mean(prior_t)
@@ -72,7 +72,7 @@ class VRNN(nn.Module):
       h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1), h)
 
       kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
-      nll_loss += self._nll_bernoulli(dec_mean_t, x[:, t].squeeze())
+      nll_loss += self._nll_bernoulli(dec_mean_t, x[t].squeeze())
 
     return kld_loss, nll_loss
 

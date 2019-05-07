@@ -73,7 +73,7 @@ def train(epoch):
     for batch_idx, (data, _) in enumerate(train_loader):
 
         data = mini_batchify(seq_len, data)
-        data = data.view(batch_size, seq_len, x_dim)
+        data = data.view(seq_len, batch_size, x_dim)
         data = min_max_norm(data, data.min().item(), data.max().item())
 
         optimizer.zero_grad()
@@ -101,7 +101,7 @@ def test(epoch):
     for i, (data, _) in enumerate(test_loader):
 
         data = mini_batchify(seq_len, data)
-        data = data.squeeze().view(batch_size, seq_len, x_dim)
+        data = data.squeeze().view(seq_len, batch_size, x_dim)
         data = min_max_norm(data, data.min().item(), data.max().item())
 
         kld_loss, nll_loss = model(data)
@@ -133,7 +133,7 @@ if __name__ == "__main__":
                              drop_last=True)
 
     model = VRNN(seq_len, x_dim, h_dim, z_dim)
-    # model.load_state_dict(torch.load('saves/vrnn_state_dict_21.pth'))
+    model.load_state_dict(torch.load('saves/vrnn_state_dict_91.pth'))
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     total_time = 0
@@ -143,7 +143,7 @@ if __name__ == "__main__":
         train(epoch)
         test(epoch)
 
-        if epoch % save_every == 1:
+        if epoch % save_every == 0:
             fn = 'saves/vrnn_state_dict_' + str(epoch) + '.pth'
             torch.save(model.state_dict(), fn)
             logging.info('Saved model to ' + fn)
