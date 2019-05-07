@@ -17,6 +17,9 @@ LOG_FILENAME = 'logs/dis_vrnn_{}.log'.format(time.strftime("%Y%m%d-%H%M%S"))
 logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
+f_gamma = 0.05
+z_gamma = 100
+#z_C = list(range(-100, 0, 10))
 x_dim = 784
 h_dim = 100
 f_dim = 20
@@ -24,10 +27,10 @@ z_dim = 3
 n_epochs = 100
 clip = 10
 learning_rate = 1e-3
-batch_size = 8
+batch_size = 128
+seq_len = 8
 seed = 128
-# print_every = 250
-print_every = 1000
+print_every = 60000 // (4 * batch_size * seq_len)
 save_every = 10
 
 
@@ -77,30 +80,31 @@ def min_max_norm(x, min, max):
     return (x - min) / (max - min)
 
 
-def dataset(cls_dataset):
-    return cls_dataset[random.randint(0, 9)]
+def mini_batchify(mini_batch_size, data):
+
+    num_m_batch = len(data) // mini_batch_size
+    mini_batched_data = [] * num_m_batch
+    for i in range(num_m_batch):
+        mini_batched_data.append(data[i * mini_batch_size:(i + 1) * mini_batch_size])
+
+    return torch.stack(mini_batched_data)
 
 
-def batch_gen(data, batch_size):
-    i = 0
-    while (i + 1) * batch_size <= len(data):
-        iter_list = list(range(len(data)))
-        random.shuffle(iter_list)
-        ix = range(i * batch_size, (i + 1) * batch_size)
-        i += 1
-        yield torch.stack([data[j] for j in ix]).view(batch_size, -1)
-
-
-def train(epoch, train_loader):
+def train(epoch, it):
     train_loss = 0
-    for batch_idx, (data, _) in enumerate(dem_train_loader):
+    prev_update = 0
+    if (epoch == prev_update + 8):
+        it = it - 10
+        prev_update = epoch
+    for batch_idx, (data, _) in enumerate(train_loader):
 
-        data = data.view(batch_size, -1)
+        data = mini_batchify(seq_len, data)
+        data = data.view(seq_len, batch_size, x_dim)
         data = min_max_norm(data, data.min().item(), data.max().item())
 
         optimizer.zero_grad()
         f_kld_loss, z_kld_loss, nll_loss = model(data)
-        loss = f_kld_loss + z_kld_loss + nll_loss
+        loss = ((f_gamma + it) * f_kld_loss) + (z_gamma * z_kld_loss) + nll_loss
         loss.backward()
         optimizer.step()
 
@@ -116,14 +120,16 @@ def train(epoch, train_loader):
     avg_loss = train_loss / train_dset_size
     logging.info('==> Epoch: {} Average loss: {:.4f}'.format(epoch,
                                                              avg_loss))
+    return it
 
 
-def test(epoch, test_loader):
+def test(epoch):
 
     mean_f_kld_loss, mean_z_kld_loss, mean_nll_loss = 0, 0, 0
-    for i, (data, _) in enumerate(dem_test_loader):
+    for i, (data, _) in enumerate(test_loader):
 
-        data = data.squeeze().view(-1, x_dim)
+        data = mini_batchify(seq_len, data)
+        data = data.squeeze().view(seq_len, batch_size, x_dim)
         data = min_max_norm(data, data.min().item(), data.max().item())
 
         f_kld_loss, z_kld_loss, nll_loss = model(data)
@@ -152,43 +158,26 @@ if __name__ == "__main__":
     test_dataset = datasets.MNIST('data', train=False,
                                   transform=transforms.ToTensor())
 
-    dem_train_loader = DataLoader(train_dataset,
-                                  batch_size=batch_size, shuffle=True,
-                                  drop_last=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size * seq_len,
+                              shuffle=True, drop_last=True)
 
-    dem_test_loader = DataLoader(test_dataset,
-                                 batch_size=batch_size, shuffle=True,
-                                 drop_last=True)
-
-    train_cls_data = [[] for i in range(10)]
-    test_cls_data = [[] for i in range(10)]
-
-    train_data = train_dataset.data.float()
-    test_data = test_dataset.data.float()
-
-    for i in range(len(train_data)):
-        train_cls_data[train_dataset.targets[i]].append(train_data[i])
-
-    for i in range(len(test_data)):
-        test_cls_data[test_dataset.targets[i]].append(test_data.data[i])
+    test_loader = DataLoader(test_dataset, batch_size=batch_size * seq_len,
+                             shuffle=True, drop_last=True)
 
     train_dset_size = len(train_dataset)
     test_dset_size = len(test_dataset)
 
-    seq_len = batch_size
     model = dis_VRNN(seq_len, x_dim, f_dim, z_dim, h_dim)
     # model.load_state_dict(torch.load('saves/dis_vrnn_state_dict_21.pth'))
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     total_time = 0
+    it = 100
     epoch_start_time = time.time()
     for epoch in range(0, n_epochs + 1):
 
-        train_loader = batch_gen(train_cls_data[random.randint(0, 9)], batch_size)
-        test_loader = batch_gen(test_cls_data[random.randint(0, 9)], batch_size)
-
-        train(epoch, train_loader)
-        test(epoch, test_loader)
+        it = train(epoch, it)
+        test(epoch)
 
         if epoch % save_every == 1:
             fn = 'saves/dis_vrnn_state_dict_' + str(epoch) + '.pth'

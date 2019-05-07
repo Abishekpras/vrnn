@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 
 class dis_VRNN(nn.Module):
-    def __init__(self, seq_len, x_dim, f_dim, z_dim, h_dim):
+    def __init__(self, seq_len, x_dim, f_dim, z_dim, h_dim, with_attn=False):
         super(dis_VRNN, self).__init__()
 
         self.x_dim = x_dim
@@ -12,6 +12,7 @@ class dis_VRNN(nn.Module):
         self.z_dim = z_dim
         self.h_dim = h_dim
         self.seq_len = seq_len
+        self.with_attn = with_attn
 
         self.phi_x = nn.Sequential(nn.Linear(x_dim, h_dim),
                                    nn.ReLU(),
@@ -25,6 +26,12 @@ class dis_VRNN(nn.Module):
                                    nn.ReLU())
 
         self.rnn = nn.GRUCell(h_dim + h_dim + h_dim, h_dim)
+
+        if with_attn:
+            self.rnn_attn_weights = nn.Linear(h_dim + h_dim, seq_len)
+
+            self.rnn_attended_inputs = nn.Sequential(nn.Linear(h_dim, h_dim + h_dim),
+                                                     nn.ReLU())
 
         # Prior Networks
 
@@ -64,22 +71,23 @@ class dis_VRNN(nn.Module):
 
         z_kld_loss = 0
         nll_loss = 0
-        h = torch.zeros(1, self.h_dim)
+        h = torch.zeros(x.size(1), self.h_dim)
 
-        phi_x = self.phi_x(x)
+        phi_x = self.phi_x(x).view(self.seq_len, x.size(1),
+                                   self.h_dim)
 
-        f_enc = self.f_enc_rnn(phi_x.view(-1, 1, self.h_dim))
-        f_enc_mean = self.f_enc_mean(f_enc[-1])
-        f_enc_std = self.f_enc_std(f_enc[-1])
+        f_enc_out, f_enc_hidden = self.f_enc_rnn(phi_x)
+        f_enc_mean = self.f_enc_mean(f_enc_hidden)
+        f_enc_std = self.f_enc_std(f_enc_hidden)
 
-        f = self._reparameterized_sample(f_enc_mean, f_enc_std)
-        phi_f = self.phi_f(f).squeeze(1)
+        f = self._reparameterized_sample(f_enc_mean, f_enc_std).squeeze()
+        phi_f = self.phi_f(f)
 
         f_kld_loss = self._kld_std_gauss(f_enc_mean, f_enc_std)
 
         for t in range(x.size(0)):
 
-            phi_x_t = self.phi_x(x[t:t + 1])
+            phi_x_t = phi_x[t]
 
             z_prior_t = self.z_prior(h)
             z_prior_mean_t = self.z_prior_mean(z_prior_t)
@@ -95,7 +103,22 @@ class dis_VRNN(nn.Module):
             dec_t = self.dec(torch.cat([phi_z_t, phi_f, h], 1))
             dec_mean_t = self.dec_mean(dec_t)
 
-            h = self.rnn(torch.cat([phi_x_t, phi_z_t, phi_f], 1), h)
+            if self.with_attn is True:
+
+                attn_wts_t = self.rnn_attn_weights(torch.cat([phi_x_t, h], 1))
+                attn_wts_t = F.softmax(attn_wts_t, dim=1)
+                print(phi_x_t.shape, h.shape, attn_wts_t.shape, f_enc_out.shape)
+                h_attn = torch.bmm(attn_wts_t, f_enc_out)
+
+                phi_attn_ip_t = self.rnn_attended_inputs(torch.cat([phi_x_t, h_attn], 1))
+
+                rnn_inp = torch.cat([phi_attn_ip_t, phi_z_t], 1)
+
+            else:
+
+                rnn_inp = torch.cat([phi_x_t, phi_z_t, phi_f], 1)
+
+            h = self.rnn(rnn_inp, h)
 
             z_kld_loss += self._kld_gauss(z_enc_mean_t, z_enc_std_t,
                                           z_prior_mean_t, z_prior_std_t)
