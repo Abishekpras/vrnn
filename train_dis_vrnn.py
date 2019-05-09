@@ -1,6 +1,5 @@
 import os
 import sys
-import random
 import time
 import logging
 import matplotlib.pyplot as plt
@@ -17,8 +16,8 @@ LOG_FILENAME = 'logs/dis_vrnn_{}.log'.format(time.strftime("%Y%m%d-%H%M%S"))
 logging.basicConfig(filename=LOG_FILENAME, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-f_gamma = 0.05
-z_gamma = 100
+f_gamma = 5
+z_gamma = 0.5
 #z_C = list(range(-100, 0, 10))
 x_dim = 784
 h_dim = 100
@@ -90,12 +89,9 @@ def mini_batchify(mini_batch_size, data):
     return torch.stack(mini_batched_data)
 
 
-def train(epoch, it):
+def train(epoch):
     train_loss = 0
-    prev_update = 0
-    if (epoch == prev_update + 8):
-        it = it - 10
-        prev_update = epoch
+
     for batch_idx, (data, _) in enumerate(train_loader):
 
         data = mini_batchify(seq_len, data)
@@ -104,7 +100,7 @@ def train(epoch, it):
 
         optimizer.zero_grad()
         f_kld_loss, z_kld_loss, nll_loss = model(data)
-        loss = ((f_gamma + it) * f_kld_loss) + (z_gamma * z_kld_loss) + nll_loss
+        loss = (f_gamma * f_kld_loss) + (z_gamma * z_kld_loss) + nll_loss
         loss.backward()
         optimizer.step()
 
@@ -176,7 +172,7 @@ if __name__ == "__main__":
     epoch_start_time = time.time()
     for epoch in range(0, n_epochs + 1):
 
-        it = train(epoch, it)
+        it = train(epoch)
         test(epoch)
 
         if epoch % save_every == 1:
