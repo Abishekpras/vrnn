@@ -3,7 +3,7 @@
 Variational RNN demo on MNIST (treated as sequence data)
 
 Paper (VRNN): ![*A Recurrent Latent Variable Model for Sequential Data*.](https://arxiv.org/pdf/1506.02216)
-Project Report (Disentangled VRNN) ![project](https://github.com/Abishekpras/vrnn/blob/master/Disentangling%20latents%20in%20a%20Variational%20RNN.pdf)
+Project Report (Disentangled VRNN) ![Disentangling latents in a Variational RNN](https://github.com/Abishekpras/vrnn/blob/master/Disentangling%20latents%20in%20a%20Variational%20RNN.pdf)
 ## Run:
 
 To train (Disentangled VRNN): ``` python3 train_dis_vrnn.py ```
