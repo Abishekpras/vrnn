@@ -9,7 +9,8 @@ Paper: ![*A Recurrent Latent Variable Model for Sequential Data*.](https://arxiv
 To train (Disentangled VRNN): ``` python3 train_dis_vrnn.py ```
 (VRNN): ``` python3 train.py```
 ## Sample Reconstructions:
-
+(Top) Sample content while fixing style
+(Bottom) Sample style while fixing content
 ![After 10/100 epochs](pos_samples.png)
 
 ## Disentangled VRNN (experimental) Model Generation
